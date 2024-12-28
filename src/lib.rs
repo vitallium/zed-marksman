@@ -12,16 +12,18 @@ impl MarksmanExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<String> {
-        let lsp_settings = LspSettings::for_worktree(language_server_id.as_ref(), worktree)?;
-
-        if let Some(binary_settings) = lsp_settings.binary {
-            return Ok(binary_settings.path.unwrap_or_default());
-        }
-
         if let Some(path) = &self.cached_binary_path {
             if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
                 return Ok(path.clone());
             }
+        }
+
+        let lsp_settings = LspSettings::for_worktree(language_server_id.as_ref(), worktree)?;
+
+        if let Some(binary_settings) = lsp_settings.binary {
+            let path = binary_settings.path.unwrap_or_default();
+            self.cached_binary_path = Some(path.clone());
+            return Ok(path);
         }
 
         if let Some(path) = worktree.which("marksman") {

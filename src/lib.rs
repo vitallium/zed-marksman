@@ -1,6 +1,6 @@
 use std::fs;
 
-use zed_extension_api::{self as zed, Result};
+use zed_extension_api::{self as zed, settings::LspSettings, Result};
 
 struct MarksmanExtension {
     cached_binary_path: Option<String>,
@@ -12,6 +12,12 @@ impl MarksmanExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<String> {
+        let lsp_settings = LspSettings::for_worktree(language_server_id.as_ref(), worktree)?;
+
+        if let Some(binary_settings) = lsp_settings.binary {
+            return Ok(binary_settings.path.unwrap_or_default());
+        }
+
         if let Some(path) = &self.cached_binary_path {
             if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
                 return Ok(path.clone());

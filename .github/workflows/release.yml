@@ -3,6 +3,8 @@ on:
     tags:
       - "v*"
 
+run-name: Release Zed Extension
+
 jobs:
   homebrew:
     name: Release Zed Extension

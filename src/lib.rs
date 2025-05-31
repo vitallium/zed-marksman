@@ -51,8 +51,13 @@ impl MarksmanExtension {
                 (zed::Os::Linux, zed::Architecture::X8664) => "linux-x64",
                 (zed::Os::Mac, _) => "macos",
                 (zed::Os::Windows, _) => "marksman.exe",
-                // TODO(vitallium): Figure out the better way to handle the unknown OS.
-                _ => "marksman",
+                (unsupported_os, unsupported_arch) => {
+                    return Err(format!(
+                        "Unsupported OS {:?} and architecture {:?} combination",
+                        unsupported_os, unsupported_arch
+                    )
+                    .into())
+                }
             }
         );
 

@@ -122,3 +122,18 @@ impl zed::Extension for MarksmanExtension {
 }
 
 zed::register_extension!(MarksmanExtension);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zed_extension_api::Extension;
+
+    #[test]
+    fn test_new_extension_initial_state() {
+        let ext = MarksmanExtension::new();
+        assert!(
+            ext.cached_binary_path.is_none(),
+            "A new extension instance should have no cached binary path by default."
+        );
+    }
+}

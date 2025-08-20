@@ -44,21 +44,18 @@ impl MarksmanExtension {
         )?;
 
         let (platform, arch) = zed::current_platform();
-        let asset_name = format!(
-            "marksman-{}",
-            match (platform, arch) {
-                (zed::Os::Linux, zed::Architecture::Aarch64) => "linux-arm64",
-                (zed::Os::Linux, zed::Architecture::X8664) => "linux-x64",
-                (zed::Os::Mac, _) => "macos",
-                (zed::Os::Windows, _) => "marksman.exe",
-                (unsupported_os, unsupported_arch) => {
-                    return Err(format!(
-                        "Unsupported OS {:?} and architecture {:?} combination",
-                        unsupported_os, unsupported_arch
-                    ));
-                }
+        let asset_name = match (platform, arch) {
+            (zed::Os::Linux, zed::Architecture::Aarch64) => "marksman-linux-arm64",
+            (zed::Os::Linux, zed::Architecture::X8664) => "marksman-linux-x64",
+            (zed::Os::Mac, _) => "marksman-macos",
+            (zed::Os::Windows, _) => "marksman.exe",
+            (unsupported_os, unsupported_arch) => {
+                return Err(format!(
+                    "Unsupported OS {:?} and architecture {:?} combination",
+                    unsupported_os, unsupported_arch
+                ));
             }
-        );
+        };
 
         let asset = release
             .assets

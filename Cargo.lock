@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "zed-marksman"
-version = "0.0.3"
+version = "0.0.6"
 dependencies = [
  "zed_extension_api",
 ]

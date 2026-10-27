@@ -1,18 +1,48 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use zed_extension_api::{self as zed, settings::LspSettings, Result};
 
 struct MarksmanExtension {
     cached_binary_path: Option<String>,
-    current_version: Option<String>,
-    previous_version_path: Option<String>,
 }
 
 impl MarksmanExtension {
+    fn binary_name(os: zed::Os) -> &'static str {
+        if os == zed::Os::Windows {
+            "marksman.exe"
+        } else {
+            "marksman"
+        }
+    }
+
+    fn downloaded_binary_or_error(
+        error: String,
+        directory: &Path,
+        binary_name: &str,
+    ) -> Result<String> {
+        fs::read_dir(directory)
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("marksman-"))
+            .filter_map(|entry| {
+                let binary = entry.path().join(binary_name);
+                binary.is_file().then_some(binary)
+            })
+            .max()
+            .map(|path| path.to_string_lossy().into_owned())
+            .ok_or_else(|| {
+                format!(
+                    "{error}: no existing Marksman binary found in {}",
+                    directory.display()
+                )
+            })
+    }
+
     fn download_and_install_binary(
         &self,
         language_server_id: &zed::LanguageServerId,
-    ) -> Result<(String, String)> {
+    ) -> Result<String> {
         zed::set_language_server_installation_status(
             language_server_id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
@@ -48,7 +78,7 @@ impl MarksmanExtension {
         let version_dir = format!("marksman-{}", release.version);
         fs::create_dir_all(&version_dir).map_err(|e| format!("failed to create directory: {e}"))?;
 
-        let binary_path = format!("{version_dir}/marksman");
+        let binary_path = format!("{version_dir}/{}", Self::binary_name(platform));
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
@@ -81,7 +111,7 @@ impl MarksmanExtension {
                 });
         }
 
-        Ok((binary_path, release.version))
+        Ok(binary_path)
     }
 
     fn language_server_binary_path(
@@ -108,28 +138,20 @@ impl MarksmanExtension {
             return Ok(path);
         }
 
-        // Save current binary as fallback before attempting update
-        if let Some(current_path) = &self.cached_binary_path {
-            if fs::metadata(current_path).is_ok_and(|stat| stat.is_file()) {
-                self.previous_version_path = Some(current_path.clone());
-            }
-        }
-
         match self.download_and_install_binary(language_server_id) {
-            Ok((binary_path, version)) => {
+            Ok(binary_path) => {
                 self.cached_binary_path = Some(binary_path.clone());
-                self.current_version = Some(version);
                 Ok(binary_path)
             }
             Err(e) => {
-                if let Some(previous_path) = &self.previous_version_path {
-                    if fs::metadata(previous_path).is_ok_and(|stat| stat.is_file()) {
-                        let path = previous_path.clone();
-                        self.cached_binary_path = Some(path.clone());
-                        return Ok(path);
-                    }
-                }
-                Err(e)
+                let (platform, _) = zed::current_platform();
+                let path = Self::downloaded_binary_or_error(
+                    e,
+                    Path::new("."),
+                    Self::binary_name(platform),
+                )?;
+                self.cached_binary_path = Some(path.clone());
+                Ok(path)
             }
         }
     }
@@ -139,8 +161,6 @@ impl zed::Extension for MarksmanExtension {
     fn new() -> Self {
         Self {
             cached_binary_path: None,
-            current_version: None,
-            previous_version_path: None,
         }
     }
 
@@ -171,13 +191,73 @@ mod tests {
             ext.cached_binary_path.is_none(),
             "A new extension instance should have no cached binary path by default."
         );
-        assert!(
-            ext.current_version.is_none(),
-            "A new extension instance should have no current version by default."
+    }
+
+    #[test]
+    fn downloaded_binary_fallback_preserves_lookup_error_when_missing() {
+        let directory = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join(format!(
+                "zed-marksman-fallback-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+        let version_dir = directory.join("marksman-1.0.0");
+        fs::create_dir_all(&version_dir).unwrap();
+        let unrelated_dir = directory.join("unrelated");
+        fs::create_dir_all(&unrelated_dir).unwrap();
+        fs::write(unrelated_dir.join("marksman"), b"not a downloaded binary").unwrap();
+
+        let result = MarksmanExtension::downloaded_binary_or_error(
+            "release lookup failed".into(),
+            &directory,
+            "marksman",
         );
+        assert!(result.is_err(), "Expected error when no binary exists");
         assert!(
-            ext.previous_version_path.is_none(),
-            "A new extension instance should have no previous version path by default."
+            result.unwrap_err().contains("release lookup failed"),
+            "Error should contain original message"
         );
+
+        let binary = version_dir.join("marksman");
+        fs::write(&binary, b"marksman").unwrap();
+        assert_eq!(
+            MarksmanExtension::downloaded_binary_or_error(
+                "release lookup failed".into(),
+                &directory,
+                "marksman",
+            ),
+            Ok(binary.to_string_lossy().into_owned())
+        );
+
+        let windows_binary = version_dir.join("marksman.exe");
+        fs::write(&windows_binary, b"marksman").unwrap();
+        assert_eq!(
+            MarksmanExtension::downloaded_binary_or_error(
+                "release lookup failed".into(),
+                &directory,
+                "marksman.exe",
+            ),
+            Ok(windows_binary.to_string_lossy().into_owned())
+        );
+
+        let newer = directory.join("marksman-2.0.0");
+        fs::create_dir_all(&newer).unwrap();
+        let newer_binary = newer.join("marksman");
+        fs::write(&newer_binary, b"marksman").unwrap();
+        assert_eq!(
+            MarksmanExtension::downloaded_binary_or_error(
+                "release lookup failed".into(),
+                &directory,
+                "marksman",
+            ),
+            Ok(newer_binary.to_string_lossy().into_owned())
+        );
+
+        fs::remove_dir_all(directory).unwrap();
     }
 }
